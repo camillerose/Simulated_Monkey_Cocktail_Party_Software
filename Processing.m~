@@ -1,0 +1,678 @@
+%% This file drives the experiment. It determines when a call should be
+%% played and when to delete call timers. 
+
+function Processing(handles, primary_obj, spont_dis_obj, antiDis1_obj, antiDis2_obj)
+
+% handles is primary obj
+% Sound analysis parameters
+delete(timerfindall);
+
+dataGUI();
+
+DataGUI = getappdata(0, 'DataGUI');
+
+record_length = .05;
+
+fs = 44100;
+
+min_freq = 5000; %Hz
+max_freq = 12000;  %Hz
+
+nFFT = 512;
+min_phee_len = .7;
+num_primary_spon = 2;
+
+
+record_params = struct('record_length', record_length, 'fs', fs, 'min_freq', ...
+    min_freq, 'max_freq', max_freq, 'nFFT', nFFT, 'min_phee_len', min_phee_len,...
+    'num_primary_spon', num_primary_spon);
+
+Marm = liveMarmoset;
+Marm.anti_win = 8; %permitted antiphonal call time
+
+primary_obj.curr_callback_wav = 1;
+spont_dis_obj.curr_callback_wav = 1;
+primary_obj.curr_spont_callback_wav = 1;
+spont_dis_obj.curr_spont_callback_wav = 1;
+
+
+%spont_dis_obj = SpontaneousDistracter;
+% experiment timer
+experimentTimer = tic; 
+% set a global timer
+setappdata(0, 'exptTimer', experimentTimer);
+
+setappdata(0, 'last_call_type', []);
+
+addlistener(Marm, 'MarmosetCall', @primary_obj.handleLiveCall);
+addlistener(Marm, 'MarmosetCall', @spont_dis_obj.handleLiveCall);
+addlistener(Marm, 'MarmosetCall', @antiDis1_obj.handleLiveCall);
+addlistener(Marm, 'MarmosetCall', @antiDis2_obj.handleLiveCall);
+
+prev_isphee = 0;
+
+expt_length = str2double(get(handles.max_length,'String'));
+
+set(handles.session_status, 'String', 'Experiment in progress')
+
+% experiment starts out in training
+experiment_status = 'training';
+
+setappdata(0, 'last_speaker_call', '');
+
+played_antiDis_call = 0;
+
+%%
+    % must play at least 3 probes from each stimulus class
+while expt_length >= toc(experimentTimer) || ((spont_dis_obj.probe_number_played < 3) ||...
+        (primary_obj.probe_number_played < 3) || (antiDis1_obj.probe_number_played < 3) ||...
+        (antiDis2_obj.probe_number_played < 3))
+    
+    
+   % update time elapsed on GUI  
+    set(handles.time_elapsed, 'String', num2str(toc(experimentTimer)));
+    set(DataGUI.time_elapsed, 'String', num2str(toc(experimentTimer)));
+    
+    % contingencies for the testing and training parts
+    % %primary_obj.num_anti_calls_done < primary_obj.min_stim ||
+    
+    if spont_dis_obj.num_calls_done < spont_dis_obj.min_stim || ...
+            antiDis1_obj.num_calls_done < antiDis1_obj.min_stim || antiDis2_obj.num_calls_done < antiDis2_obj.min_stim
+
+        experiment_status = 'training';
+        set(DataGUI.expt_status, 'String', 'In training phase');
+        setappdata(0, 'expt_status', 'training');
+        
+        % abort session if testing is not entered by the entered time
+        if expt_length >= toc(experimentTimer) 
+           
+            set(handles.session_status, 'String', 'Did not enter testing within specified time - Abort session');
+            
+        end
+               
+    else
+        
+        experiment_status = 'testing';
+        set(DataGUI.expt_status, 'String', 'In testing phase');
+        setappdata(0, 'expt_status', 'testing');
+    end
+    
+   
+    
+    drawnow('expose')
+    
+    anti_prim_call = 0;
+    
+    anti_spont_call = 0;
+
+    
+   % if speakers are playing, don't record calls from marmoset 
+   if(primary_obj.currently_calling() || spont_dis_obj.currently_calling() || antiDis1_obj.currently_calling() || antiDis2_obj.currently_calling())
+            Marm.phee_inprogress = 0;
+            Marm.new_phee = 0;
+            continue;
+   end
+    
+
+    start_record_time = toc(experimentTimer);
+    % get 50 ms worth of audio samples
+    
+    % COMMENT BACK IN ON A PC!!! 
+    %rawdata = wavrecord(record_params.record_length*record_params.fs, record_params.fs);
+    
+    end_record_time = toc(experimentTimer);
+    
+    % need to determine if samples are from a phee
+    % COMMENT BACK IN ON PC!!!
+    % is_phee = determinePhee(rawdata, record_params);
+    
+    
+    % for testing
+    if toc(experimentTimer) > 2 && toc(experimentTimer) < 5
+        setappdata(0, 'simphee', 1);
+    else
+        setappdata(0, 'simphee', 0);
+    end
+    
+    is_phee = getappdata(0, 'simphee');
+    %%
+    if(is_phee) 
+     
+        if Marm.isUpEdgePhee(prev_isphee)
+           
+           Marm.phee_inprogress = 1; % a phee is in progress
+           Marm.new_phee = 1;  
+           
+           %setappdata(0, 'last_call_type', Marm.type);
+          
+               
+           Marm.start_time = start_record_time;
+           
+           Marm.prev_start_time = Marm.start_time;
+              
+           % update the GUIs events 
+              
+              last_stim_type = getappdata(0, 'call_type');
+              
+              
+              % grand events log && GUI updates
+              
+              % call to regular primary
+              if (Marm.start_time - primary_obj.end_time) <= Marm.anti_win && ...
+                      primary_obj.num_calls_done > 0 && strcmp(last_stim_type, 'primary_anti') 
+                    events_list_live = ['Subject antiphonal call to primary antiphonal start at ' num2str(Marm.start_time)];
+                    data = get(DataGUI.grand_log, 'String');
+                    set(DataGUI.grand_log, 'String', [data; {events_list_live}]);
+                    Marm.live_anti_calls = Marm.live_anti_calls + 1;
+                    set(
+                    drawnow('expose')
+             % call to primary test
+              elseif (Marm.start_time - primary_obj.end_time) <= Marm.anti_win && ...
+                     primary_obj.num_calls_done > 0  && strcmp(last_stim_type, 'primary_test')
+                    events_list_live = ['Subject antiphonal call to primary test start at ' num2str(Marm.start_time)];
+                    data = get(DataGUI.grand_log, 'String');
+                    set(DataGUI.grand_log, 'String', [data; {events_list_live}]);
+                    Marm.live_probe_primary_response = Marm.live_probe_primary_response + 1;
+                    drawnow('expose')
+             % call to spontDis anti or spont
+              elseif (Marm.start_time - spont_dis_obj.end_time) <= Marm.anti_win && ...
+                     spont_dis_obj.num_calls_done > 0  && (strcmp(last_stim_type, 'spontDis_spont') || (strcmp(last_stim_type, 'spontDis_anti')))
+                    events_list_live = ['Subject antiphonal call to spontDis start at ' num2str(Marm.start_time)];
+                    data = get(DataGUI.grand_log, 'String');
+                    set(DataGUI.grand_log, 'String', [data; {events_list_live}]);
+                    Marm.live_anti_2_distracter = Marm.live_anti_2_distracter + 1;
+                    drawnow('expose')
+              % call to spontDis test
+              elseif (Marm.start_time - spont_dis_obj.end_time) <= Marm.anti_win && ...
+                     spont_dis_obj.num_calls_done > 0  && strcmp(last_stim_type, 'spontDis_test')
+                    events_list_live = ['Subject antiphonal call to spontDis test start at ' num2str(Marm.start_time)];
+                    data = get(DataGUI.grand_log, 'String');
+                    set(DataGUI.grand_log, 'String', [data; {events_list_live}]);
+                    Marm.live_probe_spontDis_response = Marm.live_probe_spontDis_response + 1;
+                    drawnow('expose')
+              % call to antiDis1 anti or spont
+              elseif (Marm.start_time - antiDis1_obj.end_time) <= Marm.anti_win && ...
+                     antiDis1_obj.num_calls_done > 0  && (strcmp(last_stim_type, 'antiDis1_spont') || (strcmp(last_stim_type, 'antiDis1_anti')))
+                    events_list_live = ['Subject antiphonal call to antiDis1 start at ' num2str(Marm.start_time)];
+                    data = get(DataGUI.grand_log, 'String');
+                    set(DataGUI.grand_log, 'String', [data; {events_list_live}]);
+                    Marm.live_anti_2_antiDis1 = Marm.live_anti_2_antiDis1 + 1;
+                    drawnow('expose')
+              % call to antiDis1 test
+              elseif (Marm.start_time - antiDis1_obj.end_time) <= Marm.anti_win && ...
+                     antiDis1_obj.num_calls_done > 0  && strcmp(last_stim_type, 'antiDis1_test')
+                    events_list_live = ['Subject antiphonal call to antiDis1 test start at ' num2str(Marm.start_time)];
+                    data = get(DataGUI.grand_log, 'String');
+                    set(DataGUI.grand_log, 'String', [data; {events_list_live}]);
+                    Marm.live_probe_antiDis1_response = Marm.live_probe_antiDis1_response + 1;
+                    drawnow('expose')
+              % call to antiDis2 spont or anti
+              elseif (Marm.start_time - antiDis2_obj.end_time) <= Marm.anti_win && ...
+                     antiDis2_obj.num_calls_done > 0  && (strcmp(last_stim_type, 'antiDis2_spont') || (strcmp(last_stim_type, 'antiDis2_anti')))
+                    events_list_live = ['Subject antiphonal call to antiDis2 start at ' num2str(Marm.start_time)];
+                    data = get(DataGUI.grand_log, 'String');
+                    set(DataGUI.grand_log, 'String', [data; {events_list_live}]);
+                    Marm.live_anti_2_antiDis2 = Marm.live_anti_2_antiDis2 + 1;
+                    drawnow('expose')
+              % call to antiDis2 test
+              elseif (Marm.start_time - antiDis2_obj.end_time) <= Marm.anti_win && ...
+                     antiDis2_obj.num_calls_done > 0  && strcmp(last_stim_type, 'antiDis2_test')
+                    events_list_live = ['Subject antiphonal call to antiDis2 test start at ' num2str(Marm.start_time)];
+                    data = get(DataGUI.grand_log, 'String');
+                    set(DataGUI.grand_log, 'String', [data; {events_list_live}]);
+                    Marm.live_probe_antiDis2_response = Marm.live_probe_antiDis2_response + 1;
+                    drawnow('expose')
+              % spontaneous call      
+              else
+                    events_list_live = ['Subject spontaneous call start at ' num2str(Marm.start_time)];
+                    data = get(DataGUI.grand_log, 'String');
+                    set(DataGUI.grand_log, 'String', [data; {events_list_live}]);
+                    Marm.live_spont_calls = Marm.live_spont_calls + 1;
+                    drawnow('expose')
+              end
+              
+              
+              % update total calls
+              
+              Marm.pheeCallCounter = Marm.pheeCallCounter + 1;
+              set(handles.tot_subj_calls, 'String', Marm.pheeCallCounter);
+              drawnow('expose');
+              
+              speaker_call = getappdata(0, 'speaker');
+              
+              
+              last_stim_type = getappdata(0, 'last_stim');
+              
+    
+           
+       prev_calltype = getappdata(0, 'last_call_type');
+      
+      
+              else
+               prev_isphee = is_phee;
+               continue;
+             end
+        else
+            prev_isphee = is_phee;
+            continue;
+        end
+
+              
+    % signal that a live marmoset is calling
+    
+    notify(Marm, 'MarmosetCall');
+    
+    prev_calltype = getappdata(0, 'last_call_type');
+  %  sprintf('previous call type is %s', prev_calltype)
+    
+    
+    last_call = Marm.type;
+    % else reset new call flag and store end time if a down edge
+    else
+        if Marm.new_phee == 1
+            Marm.new_phee = 0;
+            Marm.prev_pulseTime = end_record_time;
+        end    
+       
+    
+    end
+   
+ 
+    
+   % update GUI with response likelihood of primary (percentages)
+%    if  primary_obj.num_calls_done > 0
+%        if (Marm.live_anti_calls/primary_obj.num_calls_done)*100 >= 100
+%            set(DataGUI.RP_primary, 'String', 100);
+%        else
+%             set(handles.RP_primary, 'String', (Marm.live_anti_calls/primary_obj.num_calls_done)*100);
+%        end
+%        drawnow('expose')
+%    end
+%    
+   %RL for primary probe
+    if  primary_obj.probe_number_played > 0
+       if (Marm.live_probe_primary_response/primary_obj.probe_number_played)*100 >= 100
+           set(DataGUI.RP_primary, 'String', 100);
+       else
+           set(DataGUI.RP_primary, 'String', (Marm.live_probe_primary_response/primary_obj.probe_number_played)*100);
+       end
+       drawnow('expose')
+    end
+    
+   
+%     if  spont_dis_obj.num_calls_done > 0
+%        if (Marm.live_anti_2_distracter/spont_dis_obj.num_calls_done)*100 >= 100
+%            set(DataGUI.RP_spontDis, 'String', 100);
+%        else
+%             set(DataGUI.RP_spontDis, 'String', (Marm.live_anti_2_distracter/spont_dis_obj.num_calls_done)*100);
+%        end
+%        drawnow('expose')
+%     end
+   
+    %RL for spontDis probe
+    if  spont_dis_obj.probe_number_played > 0
+       if (Marm.live_probe_spontDis_response/spont_dis_obj.probe_number_played)*100 >= 100
+           set(DataGUI.RP_spontDis, 'String', 100);
+       else
+            set(DataGUI.RP_spontDis, 'String', (Marm.live_probe_spontDis_response/spont_dis_obj.probe_number_played)*100);
+       end
+       drawnow('expose')
+    end
+   
+    
+     if primary_obj.num_calls_done > 0 
+        
+            call_window = Marm.start_time - primary_obj.end_time; % latency
+        
+         if call_window > 0 && call_window <= Marm.anti_win && strcmp(last_stim_type, 'prim_probe') % live marmoset antiphonal call
+                 primary_obj.num_marm_response = primary_obj.num_marm_response + 1; 
+                 primary_obj.latency_sum = primary_obj.latency_sum + (Marm.start_time - primary_obj.end_time);
+                 new_lat = primary_obj.latency_sum/primary_obj.num_marm_response;
+                 set(DataGUI.primary_lat, 'String', new_lat);
+
+         end
+     end
+     
+     
+     if spont_dis_obj.num_calls_done > 0 
+        
+            call_window = Marm.start_time - spont_dis_obj.end_time; % latency
+        
+         if call_window > 0 && call_window <= Marm.anti_win && strcmp(last_stim_type, 'spontDis_probe') % live marmoset antiphonal call
+                 spont_dis_obj.num_marm_response = spont_dis_obj.num_marm_response + 1;
+                 spont_dis_obj.latency_sum = spont_dis_obj.latency_sum + (Marm.start_time - spont_dis_obj.end_time);
+                 new_lat = spont_dis_obj.latency_sum/spont_dis_obj.num_marm_response;
+                 set(DataGUI.spontDis_lat, 'String', new_lat);
+
+         end
+     end
+     
+     drawnow('expose')
+   
+    setappdata(0, 'last_stim_type', '');
+    
+    % guarantees an end will be found, in case a speaker call is played
+    % cutting off the recording
+    
+    if primary_obj.start_time > 0
+       if primary_obj.start_time - Marm.start_time < 1.3
+           endFound = 1;
+           Marm.prev_pulseTime = Marm.start_time + 3;
+       
+       end
+    end
+    
+    if spont_dis_obj.start_time > 0
+       if spont_dis_obj.start_time - Marm.start_time < 1.3
+           endFound = 1;
+           Marm.prev_pulseTime = Marm.start_time + 3;
+       end
+    end
+    
+   if antiDis1_obj.start_time > 0
+       if antiDis1_obj.start_time - Marm.start_time < 1.3
+           endFound = 1;
+           Marm.prev_pulseTime = Marm.start_time + 3;
+       
+       end
+   end
+    
+   if antiDis2_obj.start_time > 0
+       if antiDis2_obj.start_time - Marm.start_time < 1.3
+           endFound = 1;
+           Marm.prev_pulseTime = Marm.start_time + 3;
+       
+       end
+   end 
+    
+    % call is over, record down edge, decide what to do 
+    endFound = (Marm.endOfPheeFound(Marm.prev_pulseTime)); % prev_pulseTime is the end time of the call
+      
+    if endFound == 1    
+       Marm.prev_end_time = Marm.end_time;
+       Marm.end_time = Marm.prev_pulseTime;
+       Marm.phee_inprogress = 0;
+       
+       
+       % update GUI
+       set(handles.marm_box, 'Color', 'k');
+       events_list_live = ['Subject call end at ' num2str(Marm.end_time)];
+       data = get(handles.grand_list, 'String');
+       set(handles.grand_list, 'String', [data; {events_list_live}]);
+       drawnow('expose');
+       
+       anti_prim_call = 0;
+       anti_spont_call = 0;
+
+
+       %% 
+      
+       % response probability
+       % primary information - should just be passed to the primary_obj,
+       % need to change this
+       
+
+   % play a primary call if the experiment is in training
+   
+   stim_likelihood = 100; % likelihood that an anti stim plays at all
+      
+   
+   new_rand2 = round(rand(1)*100);
+
+  if strcmp(experiment_status, 'training') && new_rand2 <= stim_likelihood
+      playPrimaryCall = 1;
+      playAnyCall = 0;
+  else
+      playPrimaryCall = 0;      
+  end  
+
+  if strcmp(experiment_status, 'testing') && new_rand2 <= stim_likelihood
+      playAnyCall = 1;
+      playPrimaryCall = 0;
+  else
+      playAnyCall = 0;
+  end
+  
+  
+  played_antiDis_call = whenSubjectCalls(primary_obj, spont_dis_obj, antiDis1_obj, antiDis2_obj, playPrimaryCall, playAnyCall);
+ 
+       
+    end
+        
+  
+    % if the last call was from an antiphonal distracter, then continue to
+    % engage in he bout with the other
+    
+   
+    
+    last_call = getappdata(0, 'last_call');
+     if (strcmp(last_call, 'AntiDis1') || strcmp(last_call, 'AntiDis2')) && strcmp(experiment_status, 'testing')...
+             && played_antiDis_call == 1
+        if antiDis1_obj.bout_number <= 2 || antiDis2_obj.bout_number <= 2
+           bout(antiDis1_obj, antiDis2_obj)
+        end
+     end 
+        
+    
+    
+    prev_isphee = is_phee;
+         
+  
+    last_speaker_call = getappdata(0, 'last_speaker_call');
+    
+    % goAhead is an alternative to timerfindall. when the timer function is
+    % over, the stop function resets the last_speaker_call to '',
+    % indicating there are no running timers
+    if strcmp(last_speaker_call, '')
+        goAhead = 1;
+    else
+        goAhead = 0;
+    end
+        
+    % during TRAINING BLOCKS during silences - play either anti Dis bouts
+    % or spont Dis calls 
+    if strcmp(experiment_status, 'training')      
+       
+        if  (goAhead == 1 && toc(experimentTimer) >= Marm.end_time + 10)...
+          
+                trainingBlocks(experimentTimer, spont_dis_obj, antiDis1_obj, antiDis2_obj)
+                
+        end
+    end
+   
+    
+    % during TESTING BLOCKS play a call from any speaker with an equal probability during silence 
+    if strcmp(experiment_status, 'testing')
+       
+        if goAhead == 1 && Marm.phee_inprogress == 0 && toc(experimentTimer) >= Marm.end_time + 10
+           
+           testingBlocks(primary_obj, spont_dis_obj, antiDis1_obj, antiDis2_obj);
+        
+        end
+    end
+    
+    
+    prev_calltype = getappdata(0, 'last_call_type');
+    speaker_call = getappdata(0, 'speaker');
+    
+ 
+    % color speakers boxes      
+    
+    % update grand events log
+call_type = getappdata(0, 'call_type');
+    
+    if primary_obj.call_in_progress == 1 
+        
+       if strcmp(call_type, 'primary_anti') 
+            prim_log = ['Primary antiphonal call start at ' num2str(primary_obj.start_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {prim_log}]);
+            prim_log = ['Primary antiphonal call end at ' num2str(primary_obj.end_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {prim_log}]);
+            setappdata(0, 'call_type', '');
+       elseif strcmp(call_type, 'primary_spont') 
+            prim_log = ['Primary test call start at ' num2str(primary_obj.start_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {prim_log}]);
+            prim_log = ['Primary antiphonal call end at ' num2str(primary_obj.end_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {prim_log}]);
+            setappdata(0, 'call_type', '');
+       end       
+       drawnow('expose')
+       primary_obj.call_in_progress = 0;
+    end
+       
+    
+    if spont_dis_obj.call_in_progress == 1
+        
+       if strcmp(call_type, 'spontDis_anti') 
+            dis_log = ['SpontDis antiphonal call start at ' num2str(spont_dis_obj.start_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            dis_log = ['Primary antiphonal call end at ' num2str(spont_dis_obj.end_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            setappdata(0, 'call_type', '');
+       elseif strcmp(call_type, 'spontDis_spont') 
+            dis_log = ['SpontDis spontaneous call start at ' num2str(spont_dis_obj.start_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            dis_log = ['SpontDis spontaneous call end at ' num2str(spont_dis_obj.end_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            setappdata(0, 'call_type', '');
+       elseif strcmp(call_type, 'spontDis_test')
+            dis_log = ['SpontDis test call start at ' num2str(spont_dis_obj.start_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            dis_log = ['SpontDis test call end at ' num2str(spont_dis_obj.end_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            setappdata(0, 'call_type', '');    
+       end
+       drawnow('expose')
+       spont_dis_obj.call_in_progress = 0;
+    end
+       
+    if antiDis1_obj.call_in_progress == 1
+        
+       if strcmp(call_type, 'antiDis1_anti') 
+            dis_log = ['AntiDis1 antiphonal call start at ' num2str(antiDis1_obj.start_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            dis_log = ['AntiDis1 antiphonal call end at ' num2str(antiDis1_obj.end_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            setappdata(0, 'call_type', '');
+       elseif strcmp(call_type, 'antiDis1_spont') 
+            dis_log = ['AntiDis1 spontaneous call start at ' num2str(antiDis1_obj.start_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            dis_log = ['AntiDis1 spontaneous call end at ' num2str(antiDis1_obj.end_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            setappdata(0, 'call_type', '');
+       elseif strcmp(call_type, 'antiDis1_test')
+            dis_log = ['AntiDis1 test call start at ' num2str(antiDis1_obj.start_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            dis_log = ['AntiDis1 test call end at ' num2str(antiDis1_obj.end_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            setappdata(0, 'call_type', '');    
+       end
+       drawnow('expose')
+       antiDis1_obj.call_in_progress = 0;
+    end
+    
+    if antiDis2_obj.call_in_progress == 1
+       
+       if strcmp(call_type, 'antiDis2_anti') 
+            dis_log = ['AntiDis2 antiphonal call start at ' num2str(antiDis2_obj.start_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            dis_log = ['AntiDis2 antiphonal call end at ' num2str(antiDis2_obj.end_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            setappdata(0, 'call_type', '');
+       elseif strcmp(call_type, 'antiDis2_spont') 
+            dis_log = ['AntiDis2 spontaneous call start at ' num2str(antiDis2_obj.start_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            dis_log = ['AntiDis2 spontaneous call end at ' num2str(antiDis2_obj.end_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            setappdata(0, 'call_type', '');
+       elseif strcmp(call_type, 'antiDis2_test')
+            dis_log = ['AntiDis2 test call start at ' num2str(antiDis2_obj.start_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            dis_log = ['AntiDis2 test call end at ' num2str(antiDis2_obj.end_time)];
+            data = get(DataGUI.grand_log, 'String');
+            set(DataGUI.grand_log, 'String', [data; {dis_log}]);
+            setappdata(0, 'call_type', '');    
+       end
+       drawnow('expose')
+       antiDis1_obj.call_in_progress = 0;
+    end
+    
+     % update speaker calls
+       
+       set(DataGUI.primary_anti, 'String', primary_obj.num_anti_calls_done);
+       set(DataGUI.spontDis_anti, 'String', spont_dis_obj.num_anti_calls_done);
+       set(DataGUI.antiDis1_anti, 'String', antiDis1_obj.num_anti_calls_done);
+       set(DataGUI.antiDis2_anti, 'String', antiDis2_obj.num_anti_calls_done);
+       
+       set(DataGUI.spontDis_spont, 'String', spont_dis_obj.num_spont_calls_done);
+       set(DataGUI.antiDis1_spont, 'String', antiDis1_obj.num_spont_calls_done); 
+       set(DataGUI.antiDis2_spont, 'String', antiDis2_obj.num_spont_calls_done); 
+       
+       set(DataGUI.primary_test, 'String', primary_obj.probe_number_played);
+       set(DataGUI.spontDis_test, 'String', spont_dis_obj.probe_number_played);
+       set(DataGUI.antiDis1_test, 'String', antiDis1_obj.probe_number_played);
+       set(DataGUI.antiDis2_test, 'String', antiDis2_obj.probe_number_played);
+       
+       set(DataGUI.primary_calls, 'String', primary_obj.num_calls_done); 
+       set(DataGUI.spontDis_calls, 'String', spont_dis_obj.num_calls_done);
+       set(DataGUI.antiDis1_calls, 'String', antiDis1_obj.num_calls_done);
+       set(DataGUI.antiDis2_calls, 'String', antiDis2_obj.num_calls_done);
+       
+ 
+    drawnow('expose')
+    
+end
+
+set(handles.session_status, 'String', 'Experiment is over')
+
+alltimers = timerfindall;
+if ~isempty(alltimers)
+    stop(alltimers);
+    delete(alltimers);
+end
+
+
+% SAVE 
+saveSession(handles, Marm, primary_obj, spont_dis_obj, antiDis1_obj, antiDis2_obj)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+
+
+

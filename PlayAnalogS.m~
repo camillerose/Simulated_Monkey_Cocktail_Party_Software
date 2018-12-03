@@ -1,0 +1,39 @@
+function call_played = PlayAnalogS(soundData, Fs, ao, obj)
+
+    set(ao, 'StandardSampleRates', 'Off'); %turn off to allow optimal playback
+    set(ao, 'SampleRate', Fs); %set sample rate
+    
+    %channelNum = 0;
+    silence = zeros(length(soundData),1);
+    %load the data into columns for each channel of the ao object
+    if strcmp(obj.type, 'Primary') %primary is channel 0
+        channelNum = 1;
+        sprintf('channel num is %d', channelNum)
+        data = [soundData, silence, silence, silence];
+    
+    elseif strcmp(obj.type, 'SpontaneousDistracter') %distracter is channel 1
+        channelNum = 2;
+        sprintf('channel num is %d', channelNum)
+        data = [silence, soundData, silence, silence];
+    elseif strcmp(obj.type, 'AntiphonalDistracer1')
+        channelNum = 3;
+        sprintf('channel num is %d', channelNum)
+        data = [silence, silence, soundData, silence];
+    elseif
+        channelNum = 4;
+        sprintf('channel num is %d', channelNum)
+        data = [silence, silence, silence, soundData];
+    else
+        call_played = 0;
+        sprintf('Invalid Channel\n')
+        return;
+    end
+        
+        
+       
+    putdata(ao, data); %queue data to be output in data acquisition engine
+    start(ao) %starts the ao device, triggers output
+    obj.call_in_progress = 1;
+
+    
+    call_played = 1;

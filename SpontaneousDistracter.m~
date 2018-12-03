@@ -1,0 +1,60 @@
+classdef SpontaneousDistracter < speaker
+    
+    properties
+        type = 'SpontaneousDistracter';
+    end
+    
+    methods
+        function obj = SpontaneousDistracter()
+            obj = obj@speaker;
+        end
+        
+        function handleLiveCall(obj,callSource,callData)
+            
+            sprintf('SpontaneousDistracter is handling call from %s\n', callSource.type)
+                    
+            alltimers = timerfindall;
+            if ~isempty(alltimers)
+               stop(alltimers);
+               delete(alltimers);
+            %   setappdata(0, 'last_call_type', []);
+            end
+            sprintf('Deleting timers of type %s', obj.type) 
+        end
+        
+        
+        function createTimer(obj,lat1,lat2)
+            obj.callerObj = cObj; %define what object is being encapsulated
+            
+            %construct timer object name
+            objTname = strcat(obj.callerObj.type, '-', num2str(obj.callerObj.num_calls_done));
+            timerName = sprintf('TIMER-%s', objTname);
+            sprintf('Creating Timer object %s', timerName)
+            
+            range =  lat1:lat2;
+            nums = length(range);
+            ind = ceil(nums*rand(1));
+            latency = range(ind);
+            
+            obj.callerObj.callCurrent = 1; % alert object it has a call timer created
+            
+            % create timer with a countdown of latency seconds
+            obj.callTimer = timer('Name', timerName, 'StartDelay', latency, 'TasksToExecute', 1, 'ExecutionMode', 'fixedSpacing');
+            obj.callTimer.TimerFcn = {@startTimer, obj};
+            obj.callTimer.StopFcn = {stopTimer,obj};
+        end
+        
+        function startTimer(timerObj, timerData, obj)
+            
+            start(obj.callTimer)
+            
+        end
+        
+        function stopTimer(timerObj, timerData, obj)
+            
+            stop(obj.callTimer)
+        end
+        
+        
+    end    
+end

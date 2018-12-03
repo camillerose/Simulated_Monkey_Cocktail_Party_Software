@@ -1,0 +1,118 @@
+function trainingBlocks(experimentTimer, spont_dis_obj, antiDis1_obj, antiDis2_obj)
+            
+           rand_num1 = round(rand*100);
+    
+           primary_obj.spont_call = 0; 
+           
+           spont_dis_obj.spont_call = 0;
+           
+           antiDis1_obj.spont_call = 0;
+           
+           antiDis2_obj.spont_call = 0;
+           
+           % equal probability of spont call from each speaker 
+           
+           
+           if rand_num1 <= 50 && antiDis1_obj.in_bout == 0 && antiDis2_obj.in_bout == 0 &&...
+                   toc(experimentTimer) <= 13 
+                   %play a spont dis call
+                  
+                   spont_dis_obj.spont_call = 1;
+                   
+                   %phee_to_play = speakerTimer(spont_dis_obj, spont_dis_obj.spont_low, spont_dis_obj.spont_hi); % spont 
+                   
+                  setappdata(0, 'speaker_response_type', 'spont_spontaneous');
+                  
+                  primary_obj.probe_type = 'SpontaneousDistracter';
+
+                   %phee_to_play.CallStart(); %begin timer for call countdown
+                  
+                   
+                  disp('Played a spontaneous distracter call')
+               
+                  setappdata(0, 'last_call_type', phee_to_play.callerObj.type);
+           
+           elseif rand_num1 > 50
+               
+               rand_num3 = round(rand*100);
+               
+               last_call = getappdata(0, 'last_distracter_call');
+               
+               if (strcmp(last_call, 'AntiDis2') && antiDis1_obj.bout_number < 2)...
+                       || (rand_num3 <= 50 && strcmp(last_call, ''))  %play an antiDis1 call  
+                   
+                  antiDis1_obj.spont_call = 1;
+                  
+                  phee_to_play = speakerTimer(antiDis1_obj, antiDis1_obj.spont_low, antiDis1_obj.spont_hi); % spont 
+                  
+                  setappdata(0, 'speaker_response_type', 'antiDis1_spontaneous');
+                  
+                  primary_obj.probe_type = 'AntiDis1';
+                  
+                  phee_to_play.CallStart(); %begin timer for call countdown
+                  
+                  disp('Played an Antiphonal Distracter One call')
+                  
+                  antiDis1_obj.bout_number = antiDis1_obj.bout_number + 1; %update bout count
+               
+                  setappdata(0, 'last_call_type', phee_to_play.callerObj.type);
+                  
+                  setappdata(0, 'last_distracter_call', phee_to_play.callerObj.type);
+               
+               
+               elseif (strcmp(last_call, 'AntiDis1') && antiDis2_obj.bout_number < 2)...
+                       || (rand_num3 > 50 && strcmp(last_call, '')) % play an antiDis2 call
+                   
+                  antiDis2_obj.spont_call = 1;
+                  
+                  phee_to_play = speakerTimer(antiDis2_obj, antiDis2_obj.spont_low, antiDis2_obj.spont_hi); % spont 
+                  
+                  setappdata(0, 'speaker_response_type', 'antiDis2_spontaneous');
+                  
+                  primary_obj.probe_type = 'AntiDis2';
+                  
+                  phee_to_play.CallStart(); %begin timer for call countdown
+                  
+                  disp('Played an Antiphonal Distracter Two call')
+                  
+                  antiDis2_obj.bout_number = antiDis2_obj.bout_number + 1;
+               
+                  setappdata(0, 'last_call_type', phee_to_play.callerObj.type); 
+                  
+                  setappdata(0, 'last_distracter_call', phee_to_play.callerObj.type);
+                  
+                  % update in bout parameter for training
+                
+                  
+               end
+          
+                  
+           end
+            
+           % reset bouts
+     if  antiDis1_obj.bout_number <2 && antiDis1_obj.bout_number > 0  
+         antiDis1_obj.in_bout = 1;     
+     else
+         antiDis1_obj.in_bout = 0; 
+         antiDis1_obj.bout_number = 0;
+     end
+     
+     
+     if  antiDis2_obj.bout_number <2 && antiDis2_obj.bout_number > 0  
+         antiDis2_obj.in_bout = 1;     
+     else  
+         antiDis2_obj.in_bout = 0; 
+         antiDis2_obj.bout_number = 0;
+     end
+     
+     if antiDis2_obj.in_bout == 0 && antiDis1_obj.in_bout == 0
+        setappdata(0, 'last_distracter_call', '');
+     end
+     
+end
+    
+   
+    
+    
+    
+   
